@@ -233,9 +233,9 @@ class PostmarkService extends AbstractMailService
     public function getBounces(
         int $count,
         int $offset,
-        string $type = null,
-        string $inactive = null,
-        string $emailFilter = null
+        ?string $type = null,
+        ?string $inactive = null,
+        ?string $emailFilter = null
     ): array {
         if (null !== $type && !in_array($type, $this->filters)) {
             throw new Exception\RuntimeException(sprintf(
