@@ -175,6 +175,10 @@ class PostmarkService extends AbstractMailService
             if ($message->getTag()) {
                 $parameters['Tag'] = $message->getTag();
             }
+
+            if ($message->getMetadata()) {
+                $parameters['Metadata'] = $message->getMetadata();
+            }
         }
 
         $attachments = $this->extractAttachments($message);

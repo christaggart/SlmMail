@@ -42,13 +42,36 @@
 namespace SlmMail\Mail\Message;
 
 use Laminas\Mail\Message;
+use SlmMail\Mail\Message\Exception\InvalidArgumentException;
 
 class Postmark extends Message
 {
     /**
+     * Postmark accepts at most this many metadata fields per message
+     */
+    public const METADATA_MAX_FIELDS = 10;
+
+    /**
+     * Longest metadata field name Postmark accepts
+     */
+    public const METADATA_MAX_KEY_LENGTH = 20;
+
+    /**
+     * Longest metadata value Postmark accepts
+     */
+    public const METADATA_MAX_VALUE_LENGTH = 80;
+
+    /**
      * @var string
      */
     protected $tag;
+
+    /**
+     * Custom metadata sent with the message and returned by the Messages API
+     *
+     * @var array<string, string>
+     */
+    protected $metadata = [];
 
     /**
      * Get tag for the message
@@ -69,6 +92,87 @@ class Postmark extends Message
     public function setTag(?string $tag): Postmark
     {
         $this->tag = $tag;
+        return $this;
+    }
+
+    /**
+     * Get the metadata for the message
+     *
+     * @return array<string, string>
+     */
+    public function getMetadata(): array
+    {
+        return $this->metadata;
+    }
+
+    /**
+     * Replace the metadata for the message
+     *
+     * @param  array<string, scalar> $metadata field name => value
+     * @throws InvalidArgumentException
+     * @return self
+     */
+    public function setMetadata(array $metadata): Postmark
+    {
+        $this->metadata = [];
+
+        foreach ($metadata as $key => $value) {
+            $this->addMetadata((string) $key, $value);
+        }
+
+        return $this;
+    }
+
+    /**
+     * Add (or replace) a single metadata field
+     *
+     * Postmark only accepts string values, so scalars are cast; anything else
+     * is rejected. Limits are enforced here so the API does not reject the
+     * whole message later.
+     *
+     * @param  string $key   field name, at most METADATA_MAX_KEY_LENGTH characters
+     * @param  mixed  $value scalar (or object with __toString), at most METADATA_MAX_VALUE_LENGTH characters
+     * @throws InvalidArgumentException
+     * @return self
+     */
+    public function addMetadata(string $key, $value): Postmark
+    {
+        if ($key === '' || strlen($key) > self::METADATA_MAX_KEY_LENGTH) {
+            throw new InvalidArgumentException(sprintf(
+                'Postmark metadata field names must be between 1 and %d characters, "%s" given',
+                self::METADATA_MAX_KEY_LENGTH,
+                $key
+            ));
+        }
+
+        if (!is_scalar($value) && !(is_object($value) && method_exists($value, '__toString'))) {
+            throw new InvalidArgumentException(sprintf(
+                'Postmark metadata values must be scalar, %s given for "%s"',
+                is_object($value) ? get_class($value) : gettype($value),
+                $key
+            ));
+        }
+
+        $value = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
+
+        if (strlen($value) > self::METADATA_MAX_VALUE_LENGTH) {
+            throw new InvalidArgumentException(sprintf(
+                'Postmark metadata values are limited to %d characters, %d given for "%s"',
+                self::METADATA_MAX_VALUE_LENGTH,
+                strlen($value),
+                $key
+            ));
+        }
+
+        if (!array_key_exists($key, $this->metadata) && count($this->metadata) >= self::METADATA_MAX_FIELDS) {
+            throw new InvalidArgumentException(sprintf(
+                'Postmark messages are limited to %d metadata fields',
+                self::METADATA_MAX_FIELDS
+            ));
+        }
+
+        $this->metadata[$key] = $value;
+
         return $this;
     }
 }

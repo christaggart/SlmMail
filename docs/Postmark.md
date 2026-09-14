@@ -54,6 +54,21 @@ $message = new \SlmMail\Mail\Message\Postmark();
 $message->setTag('registration-mail');
 ```
 
+#### Metadata
+
+Postmark also accepts up to 10 custom metadata fields per message (field names up to 20 characters, values up to
+80 characters). They are returned by the Messages API and can be used as `metadata_<name>` filters when searching
+outbound messages, which is handy for finding every email that belongs to one of your own records.
+
+```php
+$message = new \SlmMail\Mail\Message\Postmark();
+$message->setMetadata(['order_id' => 123, 'site' => 'shop']);
+$message->addMetadata('campaign', 'spring');
+```
+
+Values are cast to strings; an `SlmMail\Mail\Message\Exception\InvalidArgumentException` is thrown when a field
+name or value is too long, a value is not scalar, or the field limit is exceeded.
+
 ### Use service locator
 
 If you have access to the service locator, you can retrieve the Postmark transport:

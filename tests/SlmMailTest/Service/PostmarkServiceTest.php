@@ -41,8 +41,12 @@
 
 namespace SlmMailTest\Service;
 
+use Laminas\Http\Client as HttpClient;
+use Laminas\Http\Client\Adapter\Test as TestAdapter;
+use Laminas\Mail\Message;
 use PHPUnit\Framework\TestCase;
 use ReflectionMethod;
+use SlmMail\Mail\Message\Postmark as PostmarkMessage;
 use SlmMail\Service\PostmarkService;
 use SlmMailTest\Util\ServiceManagerFactory;
 use Laminas\Http\Response as HttpResponse;
@@ -105,5 +109,93 @@ class PostmarkServiceTest extends TestCase
             [500, 'SlmMail\Service\Exception\RuntimeException'],
             [404, 'SlmMail\Service\Exception\RuntimeException']
         ];
+    }
+
+    /**
+     * Captures the JSON body posted to /email so the payload can be inspected.
+     *
+     * @return array{0: HttpClient, 1: TestAdapter}
+     */
+    private function stubHttpClient(): array
+    {
+        $adapter = new TestAdapter();
+        $adapter->setResponse("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n" . json_encode(['MessageID' => 'abc']));
+
+        $client = new HttpClient();
+        $client->setAdapter($adapter);
+        $this->service->setClient($client);
+
+        return [$client, $adapter];
+    }
+
+    private function message(): Message
+    {
+        $message = new Message();
+        $message->setFrom('from@example.com', 'Sender')
+                ->addTo('to@example.com')
+                ->setSubject('Subject')
+                ->setBody('Plain text');
+
+        return $message;
+    }
+
+    public function testSendPostsTagAndMetadataForPostmarkMessages()
+    {
+        [$client] = $this->stubHttpClient();
+
+        $message = new PostmarkMessage();
+        $message->setFrom('from@example.com', 'Sender')
+                ->addTo('to@example.com')
+                ->setSubject('Subject')
+                ->setBody('Plain text');
+        $message->setTag('receipt')
+                ->setMetadata(['order_id' => 123, 'site' => 'cpop']);
+
+        $this->assertSame(['MessageID' => 'abc'], $this->service->send($message));
+
+        $request = $client->getRequest();
+        $this->assertSame('POST', $request->getMethod());
+        $this->assertSame('https://api.postmarkapp.com/email', $request->getUriString());
+        $this->assertSame('my-secret-key', $request->getHeaders()->get('X-Postmark-Server-Token')->getFieldValue());
+
+        $payload = json_decode($request->getContent(), true);
+        $this->assertSame('receipt', $payload['Tag']);
+        $this->assertSame(['order_id' => '123', 'site' => 'cpop'], $payload['Metadata']);
+        $this->assertSame('<to@example.com>', $payload['To']);
+        $this->assertSame('Subject', $payload['Subject']);
+    }
+
+    public function testSendOmitsTagAndMetadataWhenNotSet()
+    {
+        [$client] = $this->stubHttpClient();
+
+        $this->service->send($this->postmarkMessageWithoutExtras());
+
+        $payload = json_decode($client->getRequest()->getContent(), true);
+        $this->assertArrayNotHasKey('Tag', $payload);
+        $this->assertArrayNotHasKey('Metadata', $payload);
+    }
+
+    public function testSendOmitsMetadataForPlainLaminasMessages()
+    {
+        [$client] = $this->stubHttpClient();
+
+        $this->service->send($this->message());
+
+        $payload = json_decode($client->getRequest()->getContent(), true);
+        $this->assertArrayNotHasKey('Tag', $payload);
+        $this->assertArrayNotHasKey('Metadata', $payload);
+        $this->assertSame('Plain text', $payload['TextBody']);
+    }
+
+    private function postmarkMessageWithoutExtras(): PostmarkMessage
+    {
+        $message = new PostmarkMessage();
+        $message->setFrom('from@example.com', 'Sender')
+                ->addTo('to@example.com')
+                ->setSubject('Subject')
+                ->setBody('Plain text');
+
+        return $message;
     }
 }
